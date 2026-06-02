@@ -795,7 +795,7 @@ function getDeviceId() {
 async function api(body) {
   const r = await fetch(API_URL, {
     method: "POST",
-    
+    headers: {"Content-Type": "application/json"},
     body: JSON.stringify(body),
   });
   return r.json();
