@@ -1,15 +1,9 @@
 // ============================================================
-// LYMOSA OBRA — Google Apps Script Backend
-// Pegar este código en: Extensions > Apps Script
-// Luego: Deploy > New deployment > Web app
-//   - Execute as: Me
-//   - Who has access: Anyone
-// Copiar la URL del deployment y pegarla en el .env de la app
+// LYMOSA OBRA — Google Apps Script Backend v2
 // ============================================================
 
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 
-// ── Nombres de hojas ─────────────────────────────────────────
 const SHEET = {
   REGISTROS:   "Registros",
   USUARIOS:    "Usuarios",
@@ -20,7 +14,6 @@ const SHEET = {
   UNIDADES:    "Unidades",
 };
 
-// ── CORS helper ──────────────────────────────────────────────
 function cors(output) {
   return output
     .setHeader("Access-Control-Allow-Origin", "*")
@@ -32,46 +25,61 @@ function doOptions() {
   return cors(ContentService.createTextOutput(""));
 }
 
-// ── Router principal ─────────────────────────────────────────
-function doPost(e) {
+// ── Router GET (usado por el proxy Node.js) ──────────────────
+function doGet(e) {
   try {
-    const body = JSON.parse(e.postData.contents);
-    const { action } = body;
-    let result;
-
-    switch (action) {
-      case "login":           result = login(body);           break;
-      case "nuevoRegistro":   result = nuevoRegistro(body);   break;
-      case "getCatalogos":    result = getCatalogos(body);    break;
-      case "agregarProveedor":result = agregarCatalogo(SHEET.PROVEEDORES, body.nombre); break;
-      case "agregarVehiculo": result = agregarVehiculo(body); break;
-      case "agregarMaterial": result = agregarCatalogo(SHEET.MATERIALES, body.nombre);  break;
-      case "agregarUnidad":   result = agregarCatalogo(SHEET.UNIDADES, body.nombre);    break;
-      // Admin
-      case "getUsuarios":     result = getHoja(SHEET.USUARIOS);   break;
-      case "getObras":        result = getObras();                 break;
-      case "crearUsuario":    result = crearUsuario(body);         break;
-      case "activarDispositivo": result = activarDispositivo(body); break;
-      case "getRegistros":    result = getRegistrosFiltrados(body); break;
-      case "getResumen":      result = getResumen(body);           break;
-      default: result = { ok: false, error: "Acción desconocida" };
+    // Si viene payload = petición de la app
+    if (e.parameter && e.parameter.payload) {
+      const body = JSON.parse(decodeURIComponent(e.parameter.payload));
+      const result = dispatch(body);
+      return cors(ContentService
+        .createTextOutput(JSON.stringify(result))
+        .setMimeType(ContentService.MimeType.JSON));
     }
-
-    return cors(ContentService
-      .createTextOutput(JSON.stringify(result))
-      .setMimeType(ContentService.MimeType.JSON));
-
-  } catch (err) {
+    // Si viene desde/hasta = descarga CSV
+    const { desde, hasta, obraId } = e.parameter || {};
+    return generarExcel(desde, hasta, obraId);
+  } catch(err) {
     return cors(ContentService
       .createTextOutput(JSON.stringify({ ok: false, error: err.message }))
       .setMimeType(ContentService.MimeType.JSON));
   }
 }
 
-function doGet(e) {
-  // Permite descargar excel de registros filtrados
-  const { desde, hasta, obraId } = e.parameter;
-  return generarExcel(desde, hasta, obraId);
+// ── Router POST (fallback directo) ───────────────────────────
+function doPost(e) {
+  try {
+    const body = JSON.parse(e.postData.contents);
+    const result = dispatch(body);
+    return cors(ContentService
+      .createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON));
+  } catch(err) {
+    return cors(ContentService
+      .createTextOutput(JSON.stringify({ ok: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON));
+  }
+}
+
+// ── Dispatch central ─────────────────────────────────────────
+function dispatch(body) {
+  const { action } = body;
+  switch (action) {
+    case "login":            return login(body);
+    case "nuevoRegistro":    return nuevoRegistro(body);
+    case "getCatalogos":     return getCatalogos(body);
+    case "agregarProveedor": return agregarCatalogo(SHEET.PROVEEDORES, body.nombre);
+    case "agregarVehiculo":  return agregarVehiculo(body);
+    case "agregarMaterial":  return agregarCatalogo(SHEET.MATERIALES, body.nombre);
+    case "agregarUnidad":    return agregarCatalogo(SHEET.UNIDADES, body.nombre);
+    case "getUsuarios":      return getHojaRaw(SHEET.USUARIOS);
+    case "getObras":         return { ok: true, data: getObras() };
+    case "crearUsuario":     return crearUsuario(body);
+    case "activarDispositivo": return activarDispositivo(body);
+    case "getRegistros":     return getRegistrosFiltrados(body);
+    case "getResumen":       return getResumen(body);
+    default: return { ok: false, error: "Accion desconocida: " + action };
+  }
 }
 
 // ── LOGIN ────────────────────────────────────────────────────
@@ -89,10 +97,19 @@ function login({ clave, deviceId, lat, lng }) {
         sh.getRange(i + 1, 6).setValue(deviceId);
         sh.getRange(i + 1, 8).setValue(new Date());
       } else if (String(deviceGuardado) !== String(deviceId)) {
-        return { ok: false, error: "Este usuario ya está activado en otro dispositivo." };
+        return { ok: false, error: "Este usuario ya esta activado en otro dispositivo." };
       }
 
-      // Verificar geovalla si tiene obra asignada
+      // Admin no tiene restriccion de geovalla
+      if (rol === "admin") {
+        return {
+          ok: true,
+          usuario: { id, nombre, rol, obraId },
+          obra: null
+        };
+      }
+
+      // Verificar geovalla para residentes
       if (obraId && lat && lng) {
         const obra = getObraById(obraId);
         if (obra) {
@@ -100,7 +117,7 @@ function login({ clave, deviceId, lat, lng }) {
           if (dist > obra.radio) {
             return {
               ok: false,
-              error: `Estás a ${Math.round(dist)}m de la obra. Necesitas estar dentro de ${obra.radio}m.`,
+              error: "Estas a " + Math.round(dist) + "m de la obra. Necesitas estar dentro de " + obra.radio + "m.",
               dist: Math.round(dist)
             };
           }
@@ -137,15 +154,14 @@ function nuevoRegistro({ usuarioId, usuarioNombre, obraId, obraNombre,
     vehiculoId, placas, descripcionVehiculo,
     materialId, materialNombre,
     cantidad, unidad,
-    lat, lng,
-    now
+    lat, lng, now
   ]);
 
   return { ok: true, folio };
 }
 
 // ── CATÁLOGOS ────────────────────────────────────────────────
-function getCatalogos({ obraId }) {
+function getCatalogos() {
   return {
     ok: true,
     proveedores: getHoja(SHEET.PROVEEDORES),
@@ -177,7 +193,6 @@ function agregarVehiculo({ placas, descripcion, proveedorId, proveedorNombre }) 
 function crearUsuario({ nombre, rol, obraId }) {
   const sh = SS.getSheetByName(SHEET.USUARIOS);
   const id = "USR-" + Date.now();
-  // Generar clave aleatoria de 6 caracteres
   const clave = Math.random().toString(36).substring(2, 8).toUpperCase();
   sh.appendRow([id, nombre, clave, rol || "residente", obraId || "", "", true, ""]);
   return { ok: true, id, nombre, clave };
@@ -188,14 +203,14 @@ function activarDispositivo({ usuarioId, deviceId }) {
   const data = sh.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     if (data[i][0] === usuarioId) {
-      sh.getRange(i + 1, 6).setValue(deviceId); // limpiar y reasignar
+      sh.getRange(i + 1, 6).setValue(deviceId);
       return { ok: true };
     }
   }
   return { ok: false, error: "Usuario no encontrado" };
 }
 
-// ── ADMIN: REPORTES ──────────────────────────────────────────
+// ── REPORTES ─────────────────────────────────────────────────
 function getRegistrosFiltrados({ desde, hasta, obraId, proveedorId, materialId }) {
   const sh = SS.getSheetByName(SHEET.REGISTROS);
   const data = sh.getDataRange().getValues();
@@ -225,12 +240,10 @@ function getResumen({ desde, hasta, obraId }) {
     const proveedor = r[8];
     const cantidad = parseFloat(r[14]) || 0;
     const unidad = r[15];
-
-    const key = `${material}|${unidad}`;
+    const key = material + "|" + unidad;
     if (!byMaterial[key]) byMaterial[key] = { material, unidad, total: 0, viajes: 0 };
     byMaterial[key].total += cantidad;
     byMaterial[key].viajes++;
-
     if (!byProveedor[proveedor]) byProveedor[proveedor] = { proveedor, total: 0, viajes: 0 };
     byProveedor[proveedor].total += cantidad;
     byProveedor[proveedor].viajes++;
@@ -247,10 +260,10 @@ function getResumen({ desde, hasta, obraId }) {
 }
 
 function generarExcel(desde, hasta, obraId) {
-  const { rows, headers } = getRegistrosFiltrados({ desde, hasta, obraId });
-  let csv = headers.join(",") + "\n";
-  rows.forEach(r => {
-    csv += r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",") + "\n";
+  const { rows, headers } = getRegistrosFiltrados({ desde: desde||"", hasta: hasta||"", obraId: obraId||"" });
+  let csv = (headers||[]).join(",") + "\n";
+  (rows||[]).forEach(r => {
+    csv += r.map(c => '"' + String(c).replace(/"/g,'""') + '"').join(",") + "\n";
   });
   return ContentService
     .createTextOutput(csv)
@@ -271,13 +284,16 @@ function getHoja(nombre) {
   });
 }
 
+function getHojaRaw(nombre) {
+  return getHoja(nombre);
+}
+
 function getObras() {
   return getHoja(SHEET.OBRAS);
 }
 
 function getObraById(id) {
-  const obras = getObras();
-  return obras.find(o => o.id === id) || null;
+  return getObras().find(o => o.id === id) || null;
 }
 
 function distanciaMetros(lat1, lng1, lat2, lng2) {
@@ -287,53 +303,37 @@ function distanciaMetros(lat1, lng1, lat2, lng2) {
   const dLng = toRad(lng2 - lng1);
   const a = Math.sin(dLat/2)**2 +
             Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2)**2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-// ── SETUP INICIAL ────────────────────────────────────────────
-// Ejecutar UNA SOLA VEZ para crear la estructura del sheet
+// ── SETUP INICIAL (correr solo una vez) ──────────────────────
 function setupInicial() {
   crearHoja(SHEET.REGISTROS, [
-    "folio","fecha","hora",
-    "obraId","obraNombre",
-    "usuarioId","usuarioNombre",
-    "proveedorId","proveedorNombre",
-    "vehiculoId","placas","descripcionVehiculo",
-    "materialId","materialNombre",
-    "cantidad","unidad",
-    "lat","lng","timestamp"
+    "folio","fecha","hora","obraId","obraNombre",
+    "usuarioId","usuarioNombre","proveedorId","proveedorNombre",
+    "vehiculoId","placas","descripcionVehiculo","materialId","materialNombre",
+    "cantidad","unidad","lat","lng","timestamp"
   ]);
-
-  crearHoja(SHEET.USUARIOS, [
-    "id","nombre","clave","rol","obraId","deviceId","activo","activadoEn"
-  ]);
-
-  crearHoja(SHEET.OBRAS, [
-    "id","nombre","direccion","lat","lng","radio","activa"
-  ]);
-
+  crearHoja(SHEET.USUARIOS,    ["id","nombre","clave","rol","obraId","deviceId","activo","activadoEn"]);
+  crearHoja(SHEET.OBRAS,       ["id","nombre","direccion","lat","lng","radio","activa"]);
   crearHoja(SHEET.PROVEEDORES, ["id","nombre","creadoEn"]);
   crearHoja(SHEET.VEHICULOS,   ["id","placas","descripcion","proveedorId","proveedorNombre","creadoEn"]);
   crearHoja(SHEET.MATERIALES,  ["id","nombre","creadoEn"]);
   crearHoja(SHEET.UNIDADES,    ["id","nombre","creadoEn"]);
 
-  // Insertar obras iniciales
   const shObras = SS.getSheetByName(SHEET.OBRAS);
   shObras.appendRow(["OBR-001","Manantiales","Calle Calz. Salto de Agua 1150, Ramos Arizpe, Coah.",25.514544130620592,-100.93820846798707,100,true]);
   shObras.appendRow(["OBR-002","Ribereña","Benito Juárez S/N, Ribereña 900, Reynosa, Tamps.",26.089545972590226,-98.29281052815551,150,true]);
 
-  // Materiales iniciales
   const shMat = SS.getSheetByName(SHEET.MATERIALES);
   [["MAT-001","TIERRA"],["MAT-002","AGUA"],["MAT-003","ARENA"],
-   ["MAT-004","GRAVA"],["MAT-005","PIEDRA"],["MAT-006","MATERIAL HIDRÁULICA"]]
+   ["MAT-004","GRAVA"],["MAT-005","PIEDRA"],["MAT-006","MATERIAL HIDRAULICA"]]
     .forEach(r => shMat.appendRow([...r, new Date()]));
 
-  // Unidades iniciales
   const shUn = SS.getSheetByName(SHEET.UNIDADES);
   [["UN-001","TONELADAS"],["UN-002","M3"],["UN-003","KG"],["UN-004","VIAJE"]]
     .forEach(r => shUn.appendRow([...r, new Date()]));
 
-  // Vehículos iniciales (de la lista del arquitecto)
   const shVeh = SS.getSheetByName(SHEET.VEHICULOS);
   const tolvas = [
     "1AF-797-A","1AG-855-A","2AG-109-A","2AG-612-A","2AG-950-A","2AG-983-A",
@@ -341,17 +341,16 @@ function setupInicial() {
     "5AG-023-A","5AG-909-A","6AG-219-A","8AG-356-A","9AF-781-A","AP-14-762",
     "AY-7139-A","BJO-095-A-A"
   ];
-  const tortons = ["BD-5785-A","BD-5786-A"];
-  tolvas.forEach((p,i) => shVeh.appendRow([`VEH-${100+i}`,p,"TOLVA","","TUCURUGUAY",new Date()]));
-  tortons.forEach((p,i) => shVeh.appendRow([`VEH-${200+i}`,p,"TORTON","","TUCURUGUAY",new Date()]));
+  tolvas.forEach((p,i) => shVeh.appendRow(["VEH-"+(100+i), p, "TOLVA", "", "TUCURUGUAY", new Date()]));
+  [["VEH-200","BD-5785-A","TORTON"],["VEH-201","BD-5786-A","TORTON"]]
+    .forEach(r => shVeh.appendRow([...r, "", "TUCURUGUAY", new Date()]));
 
-  // Usuario admin inicial
   const shUsr = SS.getSheetByName(SHEET.USUARIOS);
   shUsr.appendRow(["USR-001","Paco (Admin)","ADMIN1","admin","","",true,""]);
-  shUsr.appendRow(["USR-002","Alberto Ariel Alcalá","ALBA01","residente","OBR-001","",true,""]);
-  shUsr.appendRow(["USR-003","José Francisco Gómez","JOSE01","residente","OBR-002","",true,""]);
+  shUsr.appendRow(["USR-002","Alberto Ariel Alcala","ALBA01","residente","OBR-001","",true,""]);
+  shUsr.appendRow(["USR-003","Jose Francisco Gomez","JOSE01","residente","OBR-002","",true,""]);
 
-  Logger.log("✅ Setup completado. Claves iniciales: ADMIN1 / ALBA01 / JOSE01");
+  Logger.log("Setup completado. Claves: ADMIN1 / ALBA01 / JOSE01");
 }
 
 function crearHoja(nombre, headers) {
@@ -359,6 +358,6 @@ function crearHoja(nombre, headers) {
   if (!sh) sh = SS.insertSheet(nombre);
   else sh.clearContents();
   sh.appendRow(headers);
-  sh.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#1a3c5e").setFontColor("#ffffff");
+  sh.getRange(1,1,1,headers.length).setFontWeight("bold").setBackground("#1a3c5e").setFontColor("#ffffff");
   sh.setFrozenRows(1);
 }
