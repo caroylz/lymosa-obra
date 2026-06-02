@@ -29,7 +29,8 @@ function httpsGet(url) {
 
 app.post("/api", async (req, res) => {
   try {
-    const encoded = encodeURIComponent(JSON.stringify(req.body));
+    const payload = JSON.stringify(req.body);
+    const encoded = encodeURIComponent(payload);
     const url = APPS_SCRIPT_URL + "?payload=" + encoded;
     const text = await httpsGet(url);
     try {
