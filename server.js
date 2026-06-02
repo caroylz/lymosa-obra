@@ -1,5 +1,6 @@
 const express = require("express");
 const path = require("path");
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL || "";
@@ -14,28 +15,35 @@ app.get("/config.js", (req, res) => {
 
 app.post("/api", async (req, res) => {
   try {
+    const { default: fetch } = await import("node-fetch");
     const response = await fetch(APPS_SCRIPT_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req.body),
+      redirect: "follow",
     });
-    const data = await response.json();
-    res.json(data);
+    const text = await response.text();
+    try {
+      res.json(JSON.parse(text));
+    } catch {
+      res.status(500).json({ ok: false, error: "Respuesta inválida del servidor: " + text.substring(0, 100) });
+    }
   } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
+    res.status(500).json({ ok: falsco error: err.message });
   }
 });
 
 app.get("/api", async (req, res) => {
   try {
+    const { default: fetch } = await import("node-fetch");
     const params = new URLSearchParams(req.query);
-    const response = await fetch(APPS_SCRIPT_URL + "?" + params.toString());
+    const response = await fetch(APPS_SCRIPT_URL + "?" + params.toString(), { redirect: "follow" });
     const text = await response.text();
     res.setHeader("Content-Type", "text/csv");
     res.setHeader("Content-Disposition", "attachment; filename=reporte.csv");
     res.send(text);
   } catch (err) {
-    res.status(500).send("Error");
+    res.status(500).send("Error: " + err.message);
   }
 });
 
