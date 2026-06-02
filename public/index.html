@@ -773,6 +773,9 @@ html, body { height: 100%; background: var(--bg); font-family: var(--font); colo
         <label class="form-label">Descripción del vehículo</label>
         <input class="form-input" type="text" id="nuevo-desc-veh" placeholder="Ej. Tolva 5 ton">
       </div>
+      <button class="submit-btn" id="btn-agregar-vehiculo" onclick="guardarNuevoVehiculo()" style="margin-bottom:16px">
+        Agregar vehículo y continuar
+      </button>
     </div>
 
     <!-- MATERIAL -->
@@ -1125,6 +1128,36 @@ function toggleNuevoVehiculo() {
   g.style.display = g.style.display === "none" ? "block" : "none";
 }
 
+async function guardarNuevoVehiculo() {
+  const np = document.getElementById("nuevo-placas").value.trim().toUpperCase();
+  const nd = document.getElementById("nuevo-desc-veh").value.trim();
+  if (!np) { showToast("Ingresa las placas", "error"); return; }
+
+  const btn = document.getElementById("btn-agregar-vehiculo");
+  btn.textContent = "Guardando..."; btn.disabled = true;
+
+  const res = await api({
+    action: "agregarVehiculo",
+    placas: np, descripcion: nd,
+    proveedorId: state.proveedorId,
+    proveedorNombre: state.proveedorNombre
+  });
+
+  btn.textContent = "Agregar vehículo y continuar"; btn.disabled = false;
+
+  if (res.ok) {
+    // Agregar al catálogo local
+    if (!state.catalogos.vehiculos) state.catalogos.vehiculos = [];
+    state.catalogos.vehiculos.push(res);
+    // Seleccionar automáticamente el vehículo recién creado
+    selectVehiculo(res.id, res.placas, res.descripcion || "");
+    document.getElementById("group-nuevo-vehiculo").style.display = "none";
+    showToast("✓ Vehículo " + res.placas + " agregado", "success");
+  } else {
+    showToast(res.error || "Error al agregar vehículo", "error");
+  }
+}
+
 function showMateriales() {
   const mats = state.catalogos?.materiales || [];
   const el = document.getElementById("chips-materiales");
@@ -1164,20 +1197,8 @@ function selectUnidad(nombre) {
 }
 
 async function guardarRegistro() {
-  // Validar vehículo nuevo si aplica
-  let placas = state.placas;
-  let vehiculoId = state.vehiculoId;
-  const nuevoPlacasEl = document.getElementById("nuevo-placas");
-  if (!vehiculoId && document.getElementById("group-nuevo-vehiculo").style.display !== "none") {
-    const np = nuevoPlacasEl.value.trim().toUpperCase();
-    const nd = document.getElementById("nuevo-desc-veh").value.trim();
-    if (!np) { showToast("Ingresa las placas del vehículo", "error"); return; }
-    const res = await api({ action: "agregarVehiculo", placas: np, descripcion: nd, proveedorId: state.proveedorId, proveedorNombre: state.proveedorNombre });
-    if (res.ok) { vehiculoId = res.id; placas = res.placas; state.catalogos.vehiculos.push(res); }
-  }
-
   if (!state.proveedorId) { showToast("Selecciona un proveedor", "error"); return; }
-  if (!placas) { showToast("Selecciona o registra un vehículo", "error"); return; }
+  if (!state.placas) { showToast("Selecciona o registra un vehículo", "error"); return; }
   if (!state.materialId) { showToast("Selecciona el material", "error"); return; }
   if (!state.unidad) { showToast("Selecciona la unidad", "error"); return; }
   const cantidad = parseFloat(document.getElementById("cantidad").value);
@@ -1223,7 +1244,8 @@ async function guardarRegistro() {
     obraNombre: state.obra?.nombre || "",
     proveedorId: state.proveedorId,
     proveedorNombre: state.proveedorNombre,
-    vehiculoId, placas,
+    vehiculoId: state.vehiculoId,
+    placas: state.placas,
     descripcionVehiculo: state.descVehiculo || "",
     materialId: state.materialId,
     materialNombre: state.materialNombre,
