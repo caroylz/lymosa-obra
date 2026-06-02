@@ -2,16 +2,43 @@ const express = require("express");
 const path = require("path");
 const app = express();
 const PORT = process.env.PORT || 3000;
+const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL || "";
 
+app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
-// Inyectar la URL del Apps Script como variable JS
 app.get("/config.js", (req, res) => {
   res.setHeader("Content-Type", "application/javascript");
-  res.send(`window.APPS_SCRIPT_URL = "${process.env.APPS_SCRIPT_URL || ""}";`);
+  res.send(`window.APPS_SCRIPT_URL = "/api";`);
 });
 
-// SPA fallback
+app.post("/api", async (req, res) => {
+  try {
+    const response = await fetch(APPS_SCRIPT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body),
+    });
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get("/api", async (req, res) => {
+  try {
+    const params = new URLSearchParams(req.query);
+    const response = await fetch(APPS_SCRIPT_URL + "?" + params.toString());
+    const text = await response.text();
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", "attachment; filename=reporte.csv");
+    res.send(text);
+  } catch (err) {
+    res.status(500).send("Error");
+  }
+});
+
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
