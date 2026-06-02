@@ -15,10 +15,14 @@ const SHEET = {
 };
 
 function cors(output) {
-  return output
-    .setHeader("Access-Control-Allow-Origin", "*")
-    .setHeader("Access-Control-Allow-Methods", "GET,POST")
-    .setHeader("Access-Control-Allow-Headers", "Content-Type");
+  try {
+    return output
+      .setHeader("Access-Control-Allow-Origin", "*")
+      .setHeader("Access-Control-Allow-Methods", "GET,POST")
+      .setHeader("Access-Control-Allow-Headers", "Content-Type");
+  } catch(e) {
+    return output;
+  }
 }
 
 function doOptions() {
@@ -30,7 +34,7 @@ function doGet(e) {
   try {
     // Si viene payload = petición de la app
     if (e.parameter && e.parameter.payload) {
-      const body = JSON.parse(decodeURIComponent(e.parameter.payload));
+      const body = JSON.parse(e.parameter.payload);
       const result = dispatch(body);
       return cors(ContentService
         .createTextOutput(JSON.stringify(result))

@@ -790,14 +790,14 @@ html, body { height: 100%; background: var(--bg); font-family: var(--font); colo
               <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
               <circle cx="12" cy="13" r="4"/>
             </svg>
-            <div class="camera-slot-label">Foto 1</div>
+            <div class="camera-slot-label">DESCARGA</div>
           </div>
           <div class="camera-slot" id="slot-foto2" onclick="abrirCamara(2)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
               <circle cx="12" cy="13" r="4"/>
             </svg>
-            <div class="camera-slot-label">Foto 2</div>
+            <div class="camera-slot-label">REMISIÓN</div>
           </div>
         </div>
       </div>
@@ -868,7 +868,7 @@ html, body { height: 100%; background: var(--bg); font-family: var(--font); colo
     <video id="camera-video" autoplay playsinline muted></video>
     <canvas id="camera-canvas"></canvas>
     <div class="camera-top-bar">
-      <div class="camera-label-badge" id="camera-label-badge">Foto 1</div>
+      <div class="camera-label-badge" id="camera-label-badge">DESCARGA</div>
       <button class="camera-close-btn" onclick="cerrarCamara()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -1050,10 +1050,11 @@ function openRegistro() {
   document.getElementById("group-fotos").style.display = "none";
   document.getElementById("cantidad").value = "";
   // Reset slots
+  const slotLabels = ["DESCARGA", "REMISIÓN"];
   ["slot-foto1","slot-foto2"].forEach((id,i) => {
     const slot = document.getElementById(id);
     slot.classList.remove("captured");
-    slot.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg><div class="camera-slot-label">Foto ${i+1}</div>`;
+    slot.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg><div class="camera-slot-label">${slotLabels[i]}</div>`;
     slot.onclick = () => abrirCamara(i+1);
   });
 
@@ -1070,25 +1071,43 @@ function openRegistro() {
   openModal("modal-registro");
 }
 
-function selectProveedor(id, nombre) {
+function selectProveedor(id, nombre, esNuevo = false) {
   state.proveedorId = id;
   state.proveedorNombre = nombre;
+  state.vehiculoId = null;
+  state.placas = null;
+  state.descVehiculo = null;
   document.querySelectorAll("#chips-proveedores .chip").forEach(c =>
     c.classList.toggle("selected", c.textContent.trim() === nombre));
-  // Filtrar vehículos por proveedor
-  const vehs = (state.catalogos?.vehiculos || []).filter(v =>
-    !v.proveedorId || v.proveedorId === id || v.proveedorNombre?.toUpperCase() === nombre.toUpperCase());
+
+  // Filtrar vehículos SOLO del proveedor seleccionado
+  const vehs = (state.catalogos?.vehiculos || []).filter(v => {
+    if (!v.proveedorId && !v.proveedorNombre) return false;
+    return v.proveedorId === id ||
+      (v.proveedorNombre || "").toUpperCase() === nombre.toUpperCase();
+  });
+
   const el = document.getElementById("chips-vehiculos");
-  el.innerHTML = vehs.map(v => `
-    <button class="chip" onclick="selectVehiculo('${v.id}','${v.placas}','${v.descripcion}')">${v.placas}</button>
-  `).join("") + `
-    <button class="add-new-btn" onclick="toggleNuevoVehiculo()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      Nuevo
-    </button>`;
+
+  // Si es proveedor nuevo o no tiene vehículos → mostrar directo el formulario nuevo
+  if (esNuevo || vehs.length === 0) {
+    el.innerHTML = "";
+    document.getElementById("group-nuevo-vehiculo").style.display = "block";
+  } else {
+    el.innerHTML = vehs.map(v => `
+      <button class="chip" onclick="selectVehiculo('${v.id}','${v.placas}','${v.descripcion || ""}')">${v.placas}</button>
+    `).join("") + `
+      <button class="add-new-btn" onclick="toggleNuevoVehiculo()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Nuevo
+      </button>`;
+    document.getElementById("group-nuevo-vehiculo").style.display = "none";
+  }
+
   document.getElementById("group-placas").style.display = "block";
   document.getElementById("group-material").style.display = "none";
   document.getElementById("group-cantidad").style.display = "none";
+  document.getElementById("group-fotos").style.display = "none";
 }
 
 function selectVehiculo(id, placas, desc) {
@@ -1163,8 +1182,8 @@ async function guardarRegistro() {
   if (!state.unidad) { showToast("Selecciona la unidad", "error"); return; }
   const cantidad = parseFloat(document.getElementById("cantidad").value);
   if (!cantidad || cantidad <= 0) { showToast("Ingresa la cantidad", "error"); return; }
-  if (!state.foto1Base64) { showToast("Toma la Foto 1 obligatoria", "error"); return; }
-  if (!state.foto2Base64) { showToast("Toma la Foto 2 obligatoria", "error"); return; }
+  if (!state.foto1Base64) { showToast("Toma la foto de DESCARGA", "error"); return; }
+  if (!state.foto2Base64) { showToast("Toma la foto de REMISIÓN", "error"); return; }
 
   const btn = document.getElementById("btn-guardar");
   btn.textContent = "Subiendo fotos..."; btn.disabled = true;
@@ -1242,7 +1261,7 @@ async function subirFoto(base64, filename) {
 // ═══════════════════════════════════════════════════════
 async function abrirCamara(slot) {
   state.cameraSlotActivo = slot;
-  document.getElementById("camera-label-badge").textContent = "Foto " + slot;
+  document.getElementById("camera-label-badge").textContent = slot === 1 ? "DESCARGA" : "REMISIÓN";
   document.getElementById("camera-modal").classList.add("open");
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -1292,7 +1311,7 @@ function capturarFoto() {
   slotEl.onclick = () => abrirCamara(slot);
 
   cerrarCamara();
-  showToast("✓ Foto " + slot + " capturada", "success");
+  showToast("✓ " + (slot === 1 ? "Descarga" : "Remisión") + " capturada", "success");
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1306,12 +1325,31 @@ async function promptAgregar(tipo, enRegistro = false) {
   const res = await api({ action, nombre });
   if (res.ok) {
     showToast(`${label} agregado`, "success");
-    // Refrescar catálogos
     const c = await api({ action: "getCatalogos" });
     if (c.ok) {
       state.catalogos = c;
-      if (enRegistro) openRegistro();
-      else { renderCatalogos(); }
+      if (enRegistro) {
+        if (tipo === "proveedor") {
+          // Refrescar chips de proveedores y seleccionar el nuevo con esNuevo=true
+          openRegistro();
+          // Re-seleccionar el nuevo proveedor automáticamente
+          const provs = state.catalogos?.proveedores || [];
+          const el = document.getElementById("chips-proveedores");
+          el.innerHTML = provs.map(p => `
+            <button class="chip" onclick="selectProveedor('${p.id}','${p.nombre}')">${p.nombre}</button>
+          `).join("") + `
+            <button class="add-new-btn" onclick="promptAgregar('proveedor',true)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Nuevo
+            </button>`;
+          openModal("modal-registro");
+          selectProveedor(res.id, res.nombre, true);
+        } else {
+          openRegistro();
+        }
+      } else {
+        renderCatalogos();
+      }
     }
   }
 }
