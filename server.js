@@ -1,27 +1,18 @@
 const express = require("express");
 const path = require("path");
 const https = require("https");
-const { google } = require("googleapis");
+const cloudinary = require("cloudinary").v2;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL || "";
-const DRIVE_FOLDER_ID = process.env.DRIVE_FOLDER_ID || "1zFsoAKLNBEkHeVTPxvM24a4wPSmKgk5k";
 
-// ── Google Drive auth desde variable de entorno ──
-let driveClient = null;
-function getDrive() {
-  if (driveClient) return driveClient;
-  const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  if (!keyJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON no configurado");
-  const key = JSON.parse(keyJson);
-  const auth = new google.auth.GoogleAuth({
-    credentials: key,
-    scopes: ["https://www.googleapis.com/auth/drive"],
-  });
-  driveClient = google.drive({ version: "v3", auth });
-  return driveClient;
-}
+// ── Cloudinary config ──
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || "dndeu8kmt",
+  api_key:    process.env.CLOUDINARY_API_KEY    || "184334583281798",
+  api_secret: process.env.CLOUDINARY_API_SECRET || "Ork3r_Sdmjgq3G5QciDaJJvOUvA",
+});
 
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true, limit: "20mb" }));
@@ -32,42 +23,22 @@ app.get("/config.js", (req, res) => {
   res.send('window.APPS_SCRIPT_URL = "/api";');
 });
 
-// ── Subir foto a Google Drive ──
+// ── Subir foto a Cloudinary ──
 app.post("/api/foto", async (req, res) => {
   try {
-    const { base64, filename, mimeType } = req.body;
-    if (!base64 || !filename) return res.status(400).json({ ok: false, error: "Faltan datos" });
+    const { base64, filename } = req.body;
+    if (!base64) return res.status(400).json({ ok: false, error: "Faltan datos" });
 
-    const drive = getDrive();
-    const buffer = Buffer.from(base64, "base64");
-    const { Readable } = require("stream");
-    const stream = Readable.from(buffer);
+    const result = await cloudinary.uploader.upload(
+      "data:image/jpeg;base64," + base64,
+      {
+        folder: "lymosa-obra",
+        public_id: filename ? filename.replace(".jpg","") : undefined,
+        resource_type: "image",
+      }
+    );
 
-    const file = await drive.files.create({
-      requestBody: {
-        name: filename,
-        parents: [DRIVE_FOLDER_ID],
-      },
-      media: {
-        mimeType: mimeType || "image/jpeg",
-        body: stream,
-      },
-      fields: "id, webViewLink, webContentLink",
-    });
-
-    // Hacer el archivo público (visible con link)
-    await drive.permissions.create({
-      fileId: file.data.id,
-      requestBody: {
-        role: "reader",
-        type: "anyone",
-      },
-    });
-
-    // URL directa para mostrar en la app
-    const url = `https://drive.google.com/uc?export=view&id=${file.data.id}`;
-
-    res.json({ ok: true, url, fileId: file.data.id });
+    res.json({ ok: true, url: result.secure_url, fileId: result.public_id });
   } catch (e) {
     console.error("Error subiendo foto:", e.message);
     res.status(500).json({ ok: false, error: e.message });
